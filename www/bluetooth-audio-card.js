@@ -1135,5 +1135,5 @@ window.customCards.push({
   name:        "Bluetooth Audio Server",
   description: "Control Bluetooth A2DP source routing and per-speaker delay.",
   preview:     true,
-  documentationURL: "https://github.com/your-repo/bluetooth-audio-server",
+  documentationURL: "https://github.com/spikeeee/ha-bluetooth-audio-server",
 });

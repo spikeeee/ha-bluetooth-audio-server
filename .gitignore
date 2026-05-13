@@ -1,0 +1,42 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.egg-info/
+dist/
+build/
+.eggs/
+*.egg
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Home Assistant runtime artifacts
+home-assistant_v2.db
+home-assistant.log*
+.storage/
+deps/
+
+# IDE / editor
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# Node / frontend build
+node_modules/
+*.min.js.map
+
+# Claude Code memory (local only)
+.claude/
+
+# Secrets
+secrets.yaml
+.env
+*.pem
+*.key

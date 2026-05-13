@@ -2,7 +2,7 @@
 
 > A Home Assistant custom integration that turns your HA host into an A2DP Bluetooth sink, routing audio from any connected device to multiple smart speakers and ESP32 satellites — with per-speaker delay compensation for perfect synchronisation.
 
-[![Version](https://img.shields.io/badge/version-1.0.0-blue?style=flat-square)](https://github.com/designspiked/bluetooth-audio-server/releases)
+[![Version](https://img.shields.io/badge/version-1.0.0-blue?style=flat-square)](https://github.com/spikeeee/ha-bluetooth-audio-server/releases)
 [![HACS](https://img.shields.io/badge/HACS-Custom-orange?style=flat-square&logo=home-assistant-community-store)](https://hacs.xyz)
 [![HA Version](https://img.shields.io/badge/Home%20Assistant-2024.1%2B-brightgreen?style=flat-square&logo=home-assistant)](https://www.home-assistant.io)
 [![License](https://img.shields.io/badge/license-MIT-lightgrey?style=flat-square)](LICENSE)
@@ -128,7 +128,7 @@ This integration ships two HACS entries: one for the **custom integration** and 
 2. Click the **⋮ (three-dot menu)** in the top-right corner and select **Custom repositories**.
 3. Enter the repository URL:
    ```
-   https://github.com/designspiked/bluetooth-audio-server
+   https://github.com/spikeeee/ha-bluetooth-audio-server
    ```
 4. Set the **Category** to `Integration` and click **Add**.
 5. Close the dialog. Search for **"Bluetooth Audio Server"** in the HACS Integrations list.
@@ -379,8 +379,8 @@ Use the **Audio Delay** slider in the Lovelace card settings drawer (⚙ per out
 
 Contributions are welcome! Please open an issue or pull request on GitHub.
 
-- Report bugs: [GitHub Issues](https://github.com/designspiked/bluetooth-audio-server/issues)
-- Discuss features: [GitHub Discussions](https://github.com/designspiked/bluetooth-audio-server/discussions)
+- Report bugs: [GitHub Issues](https://github.com/spikeeee/ha-bluetooth-audio-server/issues)
+- Discuss features: [GitHub Discussions](https://github.com/spikeeee/ha-bluetooth-audio-server/discussions)
 
 ---
 
