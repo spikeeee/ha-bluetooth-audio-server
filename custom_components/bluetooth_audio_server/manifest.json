@@ -5,8 +5,7 @@
   "documentation": "https://github.com/spikeeee/ha-bluetooth-audio-server",
   "issue_tracker": "https://github.com/spikeeee/ha-bluetooth-audio-server/issues",
   "requirements": [
-    "pydbus>=0.6.0",
-    "pyalsaaudio>=0.10.0"
+    "pydbus>=0.6.0"
   ],
   "dependencies": [],
   "after_dependencies": ["bluetooth"],

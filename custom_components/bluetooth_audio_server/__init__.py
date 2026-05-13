@@ -19,11 +19,33 @@ from .const import CONF_OUTPUTS, CONF_SOURCE_ADAPTER, DOMAIN, PLATFORMS
 from .coordinator import BluetoothAudioCoordinator
 from .services import async_register_services, async_unregister_services
 
+def _check_system_deps() -> None:
+    """Warn at startup if optional C-extension libraries are missing.
+
+    pyalsaaudio must be installed at the OS level — it cannot be pip-installed
+    inside the HA container because it requires gcc and ALSA dev headers.
+
+    On Debian/Raspberry Pi OS:
+        sudo apt-get install python3-alsaaudio
+
+    On Home Assistant OS (haos): install the 'SSH & Web Terminal' add-on,
+    then run:  apk add py3-alsaaudio
+    """
+    try:
+        import alsaaudio  # noqa: F401
+    except ImportError:
+        _LOGGER.warning(
+            "pyalsaaudio is not installed — audio streaming will not work. "
+            "Install it at the OS level: 'sudo apt-get install python3-alsaaudio' "
+            "(Debian/Ubuntu) or 'apk add py3-alsaaudio' (Alpine/HA OS)."
+        )
+
 _LOGGER = logging.getLogger(__name__)
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up Bluetooth Audio Server from a config entry."""
+    _check_system_deps()
     adapter = entry.data.get(CONF_SOURCE_ADAPTER, "hci0")
 
     coordinator = BluetoothAudioCoordinator(hass, adapter)
