@@ -1,0 +1,210 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Automation: Mass Broadcast
+#
+# Scenario:
+#   One button press (physical or dashboard) activates every speaker in the
+#   house simultaneously — perfect for parties, household announcements,
+#   or a "whole-home audio" scene.
+#
+#   A second trigger watches for the party mode helper being toggled off,
+#   cleanly shutting everything down again.
+#
+#   A third trigger watches for the BT source disconnecting and automatically
+#   cleans up all outputs so nothing sits in a stale "buffering" state.
+#
+# Prerequisites:
+#   • input_button.bt_audio_broadcast_all   (see configuration.yaml)
+#   • input_boolean.bt_audio_party_mode     (see configuration.yaml)
+#   • notify.spike_phone                    (your mobile_app notify target)
+# ─────────────────────────────────────────────────────────────────────────────
+
+alias: "BT Audio — Mass Broadcast"
+description: >
+  Activates every configured speaker at once. Supports three sub-scenarios:
+  full broadcast (button press), graceful shutdown (party mode toggled off),
+  and auto-cleanup when the Bluetooth source disconnects.
+
+mode: restart   # if triggered again mid-run, restart cleanly
+
+trigger:
+  # ── One-press broadcast trigger (physical button or dashboard tap) ──
+  - platform: state
+    entity_id: input_button.bt_audio_broadcast_all
+    id: broadcast_start
+
+  # ── Party mode explicitly turned off ──
+  - platform: state
+    entity_id: input_boolean.bt_audio_party_mode
+    to: "off"
+    id: party_mode_off
+
+  # ── Source device disconnected — clean up automatically ──
+  - platform: state
+    entity_id: sensor.bt_audio_source_state
+    to: "disconnected"
+    id: source_disconnected
+
+  # ── Scheduled end: auto-stop at midnight if still running ──
+  - platform: time
+    at: "00:00:00"
+    id: midnight_stop
+
+action:
+  - choose:
+
+      # ════════════════════════════════════════════════════════════════════
+      # BROADCAST START
+      # Blast audio to every output, applying calibrated delays so all
+      # speakers are in sync from the very first second.
+      # ════════════════════════════════════════════════════════════════════
+      - conditions:
+          - condition: trigger
+            id: broadcast_start
+          # Guard: source must be streaming — nothing to broadcast otherwise
+          - condition: state
+            entity_id: sensor.bt_audio_source_state
+            state: "streaming"
+        sequence:
+
+          # ── Set party mode flag (used by other automations to know we're broadcasting) ──
+          - service: input_boolean.turn_on
+            target:
+              entity_id: input_boolean.bt_audio_party_mode
+
+          # ── Apply delays for all speakers in parallel (parallel: true) ──
+          - parallel:
+              - service: bluetooth_audio_server.set_delay
+                data:
+                  output_id: media_player.bt_output_living_room
+                  delay_ms: "{{ states('input_number.bt_audio_delay_living_room') | int }}"
+
+              - service: bluetooth_audio_server.set_delay
+                data:
+                  output_id: media_player.bt_output_bedroom
+                  delay_ms: "{{ states('input_number.bt_audio_delay_bedroom') | int }}"
+
+              - service: bluetooth_audio_server.set_delay
+                data:
+                  output_id: media_player.bt_output_esp32_kitchen
+                  delay_ms: "{{ states('input_number.bt_audio_delay_kitchen') | int }}"
+
+          # ── Set volumes (full for main areas, slightly lower for bedroom) ──
+          - parallel:
+              - service: bluetooth_audio_server.set_volume
+                data:
+                  output_id: media_player.bt_output_living_room
+                  volume: 1.0
+
+              - service: bluetooth_audio_server.set_volume
+                data:
+                  output_id: media_player.bt_output_esp32_kitchen
+                  volume: 0.85
+
+              # Bedroom: guests may not want full blast even in party mode
+              - service: bluetooth_audio_server.set_volume
+                data:
+                  output_id: media_player.bt_output_bedroom
+                  volume: 0.70
+
+          # ── Route audio to all outputs simultaneously ──
+          - parallel:
+              - service: bluetooth_audio_server.route_to_output
+                data:
+                  output_id: media_player.bt_output_living_room
+
+              - service: bluetooth_audio_server.route_to_output
+                data:
+                  output_id: media_player.bt_output_bedroom
+
+              - service: bluetooth_audio_server.route_to_output
+                data:
+                  output_id: media_player.bt_output_esp32_kitchen
+
+          # ── Confirm on phone ──
+          - service: notify.spike_phone
+            data:
+              title: "🔊 Broadcast Active"
+              message: >
+                All speakers are live.
+                Source: {{ states('sensor.bt_audio_source_device') }}
+              data:
+                # iOS/Android action buttons for quick control
+                actions:
+                  - action: "BT_STOP_ALL"
+                    title: "Stop All"
+                    destructive: true
+
+      # ════════════════════════════════════════════════════════════════════
+      # GRACEFUL SHUTDOWN
+      # Fade each output down before stopping to avoid jarring cut-offs.
+      # ════════════════════════════════════════════════════════════════════
+      - conditions:
+          - condition: or
+            conditions:
+              - condition: trigger
+                id: party_mode_off
+              - condition: trigger
+                id: midnight_stop
+        sequence:
+
+          # ── Volume fade: step down over ~5 seconds ──
+          - repeat:
+              count: 5
+              sequence:
+                - parallel:
+                    - service: bluetooth_audio_server.set_volume
+                      data:
+                        output_id: media_player.bt_output_living_room
+                        volume: >
+                          {{ [states('media_player.bt_output_living_room')
+                              | float(0.8) - (repeat.index * 0.18), 0.0] | max | round(2) }}
+
+                    - service: bluetooth_audio_server.set_volume
+                      data:
+                        output_id: media_player.bt_output_bedroom
+                        volume: >
+                          {{ [states('media_player.bt_output_bedroom')
+                              | float(0.7) - (repeat.index * 0.15), 0.0] | max | round(2) }}
+
+                    - service: bluetooth_audio_server.set_volume
+                      data:
+                        output_id: media_player.bt_output_esp32_kitchen
+                        volume: >
+                          {{ [states('media_player.bt_output_esp32_kitchen')
+                              | float(0.85) - (repeat.index * 0.18), 0.0] | max | round(2) }}
+
+                - delay: "00:00:01"
+
+          # ── Full stop after fade ──
+          - service: bluetooth_audio_server.stop_all
+
+          # ── Clear the party mode flag ──
+          - service: input_boolean.turn_off
+            target:
+              entity_id: input_boolean.bt_audio_party_mode
+
+          - service: notify.spike_phone
+            data:
+              title: "🔇 Broadcast Ended"
+              message: "All speakers have been stopped."
+
+      # ════════════════════════════════════════════════════════════════════
+      # SOURCE DISCONNECTED — emergency cleanup
+      # ════════════════════════════════════════════════════════════════════
+      - conditions:
+          - condition: trigger
+            id: source_disconnected
+        sequence:
+          - service: bluetooth_audio_server.stop_all
+
+          - service: input_boolean.turn_off
+            target:
+              entity_id: input_boolean.bt_audio_party_mode
+
+          # Optional: notify so you know the source dropped
+          - service: notify.spike_phone
+            data:
+              title: "⚠️ BT Audio Source Lost"
+              message: >
+                {{ states('sensor.bt_audio_source_device') | default('Unknown device') }}
+                disconnected. All speakers stopped.

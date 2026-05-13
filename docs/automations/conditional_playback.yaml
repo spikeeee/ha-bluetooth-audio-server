@@ -1,0 +1,404 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Automation: Conditional Playback
+#
+# Scenario:
+#   Intelligent, context-aware audio routing that responds to:
+#     • Time of day  — different rooms and volumes for morning / daytime / night
+#     • Occupancy    — stop automatically when everyone leaves
+#     • Stream start — auto-route to the right room when music begins playing
+#     • Volume curfew — gradually reduce volume after 10 PM without stopping
+#
+#   Think of this as the "smart default" that runs quietly in the background,
+#   making sensible routing decisions without requiring any manual input.
+#
+# State machine this automation manages:
+#
+#   MORNING (06:30–09:00)  →  Bedroom → Living Room transition
+#   DAYTIME (09:00–22:00)  →  Living Room at normal volume
+#   NIGHT   (22:00–00:00)  →  All rooms at curfew volume
+#   ABSENT                 →  Stop all
+#
+# Prerequisites:
+#   • group.family                   (see configuration.yaml)
+#   • input_boolean.bt_audio_enabled (master switch)
+#   • input_number.bt_audio_night_volume
+#   • All output entities and presence sensors from other automations
+# ─────────────────────────────────────────────────────────────────────────────
+
+alias: "BT Audio — Conditional Playback"
+description: >
+  Context-aware routing: auto-selects room and volume based on time of day
+  and occupancy. Stops all audio when the house is empty. Applies a volume
+  curfew at 22:00 and gradually returns to normal after 09:00.
+
+mode: queued
+max: 10
+max_exceeded: silent
+
+trigger:
+  # ── Stream begins — auto-route to appropriate room ──
+  - platform: state
+    entity_id: sensor.bt_audio_source_state
+    to: "streaming"
+    id: stream_started
+
+  # ── Everyone leaves — stop everything ──
+  - platform: state
+    entity_id: group.family
+    to: "not_home"
+    for: "00:02:00"   # 2-minute buffer to avoid stopping on brief departures
+    id: everyone_left
+
+  # ── Someone arrives home ──
+  - platform: state
+    entity_id: group.family
+    to: "home"
+    id: someone_arrived
+
+  # ── Morning: transition out of night mode ──
+  - platform: time
+    at: "06:30:00"
+    id: morning_start
+
+  # ── Daytime: restore full volume after the slow morning ──
+  - platform: time
+    at: "09:00:00"
+    id: daytime_start
+
+  # ── Night curfew: reduce volumes without stopping ──
+  - platform: time
+    at: "22:00:00"
+    id: night_curfew
+
+  # ── Master switch turned on mid-day ──
+  - platform: state
+    entity_id: input_boolean.bt_audio_enabled
+    to: "on"
+    id: master_enabled
+
+  # ── Master switch turned off ──
+  - platform: state
+    entity_id: input_boolean.bt_audio_enabled
+    to: "off"
+    id: master_disabled
+
+# No top-level condition — each branch has its own guards
+condition: []
+
+action:
+  - choose:
+
+      # ════════════════════════════════════════════════════════════════════
+      # STREAM STARTED
+      # Music just began playing — route intelligently based on context.
+      # ════════════════════════════════════════════════════════════════════
+      - conditions:
+          - condition: trigger
+            id: stream_started
+          - condition: state
+            entity_id: input_boolean.bt_audio_enabled
+            state: "on"
+          - condition: state
+            entity_id: group.family
+            state: "home"
+        sequence:
+          - choose:
+
+              # ── Late night (22:00–06:30): bedroom only, low volume ──
+              - conditions:
+                  - condition: time
+                    after:  "22:00:00"
+                    before: "06:30:00"
+                sequence:
+                  - service: bluetooth_audio_server.set_delay
+                    data:
+                      output_id: media_player.bt_output_bedroom
+                      delay_ms: "{{ states('input_number.bt_audio_delay_bedroom') | int }}"
+
+                  - service: bluetooth_audio_server.set_volume
+                    data:
+                      output_id: media_player.bt_output_bedroom
+                      volume: "{{ states('input_number.bt_audio_night_volume') | float(0.25) }}"
+
+                  - service: bluetooth_audio_server.route_to_output
+                    data:
+                      output_id: media_player.bt_output_bedroom
+
+              # ── Morning (06:30–09:00): bedroom, building to living room ──
+              - conditions:
+                  - condition: time
+                    after:  "06:30:00"
+                    before: "09:00:00"
+                sequence:
+                  # Start soft in the bedroom
+                  - service: bluetooth_audio_server.set_delay
+                    data:
+                      output_id: media_player.bt_output_bedroom
+                      delay_ms: "{{ states('input_number.bt_audio_delay_bedroom') | int }}"
+
+                  - service: bluetooth_audio_server.set_volume
+                    data:
+                      output_id: media_player.bt_output_bedroom
+                      volume: 0.40
+
+                  - service: bluetooth_audio_server.route_to_output
+                    data:
+                      output_id: media_player.bt_output_bedroom
+
+              # ── Daytime (09:00–22:00): living room at comfortable volume ──
+              - conditions:
+                  - condition: time
+                    after:  "09:00:00"
+                    before: "22:00:00"
+                sequence:
+                  - service: bluetooth_audio_server.set_delay
+                    data:
+                      output_id: media_player.bt_output_living_room
+                      delay_ms: "{{ states('input_number.bt_audio_delay_living_room') | int }}"
+
+                  - service: bluetooth_audio_server.set_volume
+                    data:
+                      output_id: media_player.bt_output_living_room
+                      volume: 0.70
+
+                  - service: bluetooth_audio_server.route_to_output
+                    data:
+                      output_id: media_player.bt_output_living_room
+
+      # ════════════════════════════════════════════════════════════════════
+      # EVERYONE LEFT
+      # Stop all outputs. Don't waste power streaming to an empty house.
+      # ════════════════════════════════════════════════════════════════════
+      - conditions:
+          - condition: trigger
+            id: everyone_left
+        sequence:
+          - service: bluetooth_audio_server.stop_all
+
+          - service: notify.spike_phone
+            data:
+              title: "🏠 House Empty"
+              message: "BT Audio stopped — everyone has left."
+
+      # ════════════════════════════════════════════════════════════════════
+      # SOMEONE ARRIVED HOME
+      # If the source is streaming and audio isn't already playing
+      # somewhere, pick the right room based on time of day.
+      # ════════════════════════════════════════════════════════════════════
+      - conditions:
+          - condition: trigger
+            id: someone_arrived
+          - condition: state
+            entity_id: sensor.bt_audio_source_state
+            state: "streaming"
+          - condition: state
+            entity_id: input_boolean.bt_audio_enabled
+            state: "on"
+          # Only auto-route if nothing is already playing
+          - condition: not
+            conditions:
+              - condition: state
+                entity_id: media_player.bt_output_living_room
+                state: "playing"
+              - condition: state
+                entity_id: media_player.bt_output_bedroom
+                state: "playing"
+        sequence:
+          - choose:
+              # Daytime arrival → living room
+              - conditions:
+                  - condition: time
+                    after:  "09:00:00"
+                    before: "22:00:00"
+                sequence:
+                  - service: bluetooth_audio_server.set_volume
+                    data:
+                      output_id: media_player.bt_output_living_room
+                      volume: 0.65
+                  - service: bluetooth_audio_server.route_to_output
+                    data:
+                      output_id: media_player.bt_output_living_room
+
+              # Night arrival → bedroom, quiet
+              - conditions:
+                  - condition: time
+                    after:  "22:00:00"
+                    before: "09:00:00"
+                sequence:
+                  - service: bluetooth_audio_server.set_volume
+                    data:
+                      output_id: media_player.bt_output_bedroom
+                      volume: 0.30
+                  - service: bluetooth_audio_server.route_to_output
+                    data:
+                      output_id: media_player.bt_output_bedroom
+
+      # ════════════════════════════════════════════════════════════════════
+      # MORNING (06:30)
+      # Gently wake the house: start bedroom at low volume, then
+      # after 30 minutes crossfade to the living room.
+      # ════════════════════════════════════════════════════════════════════
+      - conditions:
+          - condition: trigger
+            id: morning_start
+          - condition: state
+            entity_id: sensor.bt_audio_source_state
+            state: "streaming"
+          - condition: state
+            entity_id: input_boolean.bt_audio_enabled
+            state: "on"
+          - condition: state
+            entity_id: group.family
+            state: "home"
+        sequence:
+          # Start soft in bedroom
+          - service: bluetooth_audio_server.set_volume
+            data:
+              output_id: media_player.bt_output_bedroom
+              volume: 0.30
+
+          - service: bluetooth_audio_server.route_to_output
+            data:
+              output_id: media_player.bt_output_bedroom
+
+          # Wait 30 minutes — time to get up and move to the kitchen / living room
+          - delay: "00:30:00"
+
+          # Only crossfade if the source is still streaming
+          - condition: state
+            entity_id: sensor.bt_audio_source_state
+            state: "streaming"
+
+          # Crossfade: bring living room in before cutting bedroom
+          - service: bluetooth_audio_server.set_volume
+            data:
+              output_id: media_player.bt_output_living_room
+              volume: 0.50
+
+          - service: bluetooth_audio_server.route_to_output
+            data:
+              output_id: media_player.bt_output_living_room
+
+          - delay: "00:00:03"   # 3-second overlap so there's no silence
+
+          - service: bluetooth_audio_server.stop_output
+            data:
+              output_id: media_player.bt_output_bedroom
+
+      # ════════════════════════════════════════════════════════════════════
+      # DAYTIME (09:00)
+      # Restore normal volume on any active outputs that may still be on
+      # a reduced volume from overnight or morning mode.
+      # ════════════════════════════════════════════════════════════════════
+      - conditions:
+          - condition: trigger
+            id: daytime_start
+          - condition: state
+            entity_id: input_boolean.bt_audio_enabled
+            state: "on"
+        sequence:
+          # Ramp up volume on any playing output — step every 60 s over 3 min
+          - repeat:
+              count: 3
+              sequence:
+                - if:
+                    - condition: state
+                      entity_id: media_player.bt_output_living_room
+                      state: "playing"
+                  then:
+                    - service: bluetooth_audio_server.set_volume
+                      data:
+                        output_id: media_player.bt_output_living_room
+                        volume: >
+                          {{ [0.50 + (repeat.index * 0.07), 0.70] | min | round(2) }}
+
+                - if:
+                    - condition: state
+                      entity_id: media_player.bt_output_bedroom
+                      state: "playing"
+                  then:
+                    - service: bluetooth_audio_server.set_volume
+                      data:
+                        output_id: media_player.bt_output_bedroom
+                        volume: >
+                          {{ [0.30 + (repeat.index * 0.08), 0.55] | min | round(2) }}
+
+                - delay: "00:01:00"
+
+      # ════════════════════════════════════════════════════════════════════
+      # NIGHT CURFEW (22:00)
+      # Reduce volumes across all active outputs to the configured curfew
+      # level. Don't stop — just go quiet. The listener can re-enable
+      # louder audio manually via the card if they want.
+      # ════════════════════════════════════════════════════════════════════
+      - conditions:
+          - condition: trigger
+            id: night_curfew
+          - condition: state
+            entity_id: input_boolean.bt_audio_enabled
+            state: "on"
+        sequence:
+          # Gradual fade over 2 minutes (4 steps × 30 s)
+          - repeat:
+              count: 4
+              sequence:
+                - variables:
+                    # Target curfew level from the helper slider
+                    night_vol: "{{ states('input_number.bt_audio_night_volume') | float(0.25) }}"
+                    # Current step: interpolate from current volume toward night_vol
+                    step_fraction: "{{ repeat.index / 4 }}"
+
+                - if:
+                    - condition: state
+                      entity_id: media_player.bt_output_living_room
+                      state: "playing"
+                  then:
+                    - service: bluetooth_audio_server.set_volume
+                      data:
+                        output_id: media_player.bt_output_living_room
+                        volume: >
+                          {{ (0.70 + (night_vol - 0.70) * step_fraction) | round(2) }}
+
+                - if:
+                    - condition: state
+                      entity_id: media_player.bt_output_bedroom
+                      state: "playing"
+                  then:
+                    - service: bluetooth_audio_server.set_volume
+                      data:
+                        output_id: media_player.bt_output_bedroom
+                        volume: >
+                          {{ (0.55 + (night_vol - 0.55) * step_fraction) | round(2) }}
+
+                - if:
+                    - condition: state
+                      entity_id: media_player.bt_output_esp32_kitchen
+                      state: "playing"
+                  then:
+                    - service: bluetooth_audio_server.set_volume
+                      data:
+                        output_id: media_player.bt_output_esp32_kitchen
+                        volume: >
+                          {{ (0.65 + (night_vol - 0.65) * step_fraction) | round(2) }}
+
+                - delay: "00:00:30"
+
+          # If kitchen is still playing at curfew, stop it (kitchen = social space;
+          # after 22:00 the household is winding down)
+          - if:
+              - condition: state
+                entity_id: media_player.bt_output_esp32_kitchen
+                state: "playing"
+            then:
+              - service: bluetooth_audio_server.stop_output
+                data:
+                  output_id: media_player.bt_output_esp32_kitchen
+
+      # ════════════════════════════════════════════════════════════════════
+      # MASTER SWITCH DISABLED
+      # ════════════════════════════════════════════════════════════════════
+      - conditions:
+          - condition: trigger
+            id: master_disabled
+        sequence:
+          - service: bluetooth_audio_server.stop_all

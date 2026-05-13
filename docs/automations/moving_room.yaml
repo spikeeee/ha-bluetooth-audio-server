@@ -1,0 +1,236 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Automation: Moving Room
+#
+# Scenario:
+#   Audio follows the listener as they move between rooms.
+#   When presence is detected in a new room, audio routes there immediately.
+#   When the listener leaves a room (presence clears after delay_off), that
+#   output is stopped — preventing audio playing in empty rooms.
+#
+# Prerequisites:
+#   • Presence sensors per room (see configuration.yaml template sensors)
+#   • Outputs configured in the integration:
+#       media_player.bt_output_living_room
+#       media_player.bt_output_bedroom
+#       media_player.bt_output_esp32_kitchen
+#   • Delays pre-calibrated via set_delay (or the Lovelace card sliders)
+#
+# How to import:
+#   Settings → Automations → ⋮ → Import automation YAML
+# ─────────────────────────────────────────────────────────────────────────────
+
+alias: "BT Audio — Moving Room"
+description: >
+  Routes audio to whichever room the listener enters.
+  Stops the previous room's output 30 seconds after they leave,
+  giving a comfortable crossfade window.
+
+mode: queued    # queue triggers so rapid room changes process cleanly
+max: 5          # allow up to 5 pending triggers before dropping
+
+trigger:
+  # ── Entering a room ──
+  - platform: state
+    entity_id: binary_sensor.presence_living_room
+    to: "on"
+    id: enter_living_room
+
+  - platform: state
+    entity_id: binary_sensor.presence_bedroom
+    to: "on"
+    id: enter_bedroom
+
+  - platform: state
+    entity_id: binary_sensor.presence_kitchen
+    to: "on"
+    id: enter_kitchen
+
+  # ── Leaving a room (delay_off handles hysteresis in the sensor template) ──
+  - platform: state
+    entity_id: binary_sensor.presence_living_room
+    to: "off"
+    id: leave_living_room
+
+  - platform: state
+    entity_id: binary_sensor.presence_bedroom
+    to: "off"
+    id: leave_bedroom
+
+  - platform: state
+    entity_id: binary_sensor.presence_kitchen
+    to: "off"
+    id: leave_kitchen
+
+condition:
+  # Only act when a source device is actually streaming audio.
+  # No point routing if there is nothing to route.
+  - condition: state
+    entity_id: sensor.bt_audio_source_state
+    state: "streaming"
+
+  # Respect the master on/off toggle.
+  - condition: state
+    entity_id: input_boolean.bt_audio_enabled
+    state: "on"
+
+action:
+  - choose:
+
+      # ════════════════════════════════════════════════════════════════════
+      # ENTER: Living Room
+      # ════════════════════════════════════════════════════════════════════
+      - conditions:
+          - condition: trigger
+            id: enter_living_room
+        sequence:
+          # Apply the calibrated delay for this speaker before routing
+          - service: bluetooth_audio_server.set_delay
+            data:
+              output_id: media_player.bt_output_living_room
+              delay_ms: "{{ states('input_number.bt_audio_delay_living_room') | int }}"
+
+          # Set a comfortable listening volume
+          - service: bluetooth_audio_server.set_volume
+            data:
+              output_id: media_player.bt_output_living_room
+              volume: 0.70
+
+          # Start routing to the room the listener just entered
+          - service: bluetooth_audio_server.route_to_output
+            data:
+              output_id: media_player.bt_output_living_room
+
+          # Brief pause to let audio reach the speaker before stopping others
+          # (avoids a moment of silence during the handover)
+          - delay: "00:00:02"
+
+          # Stop rooms the listener has left, but only if they're empty
+          - if:
+              - condition: state
+                entity_id: binary_sensor.presence_bedroom
+                state: "off"
+            then:
+              - service: bluetooth_audio_server.stop_output
+                data:
+                  output_id: media_player.bt_output_bedroom
+
+          - if:
+              - condition: state
+                entity_id: binary_sensor.presence_kitchen
+                state: "off"
+            then:
+              - service: bluetooth_audio_server.stop_output
+                data:
+                  output_id: media_player.bt_output_esp32_kitchen
+
+      # ════════════════════════════════════════════════════════════════════
+      # ENTER: Bedroom
+      # ════════════════════════════════════════════════════════════════════
+      - conditions:
+          - condition: trigger
+            id: enter_bedroom
+        sequence:
+          - service: bluetooth_audio_server.set_delay
+            data:
+              output_id: media_player.bt_output_bedroom
+              delay_ms: "{{ states('input_number.bt_audio_delay_bedroom') | int }}"
+
+          # Bedroom: slightly lower volume by default for a relaxed atmosphere
+          - service: bluetooth_audio_server.set_volume
+            data:
+              output_id: media_player.bt_output_bedroom
+              volume: 0.55
+
+          - service: bluetooth_audio_server.route_to_output
+            data:
+              output_id: media_player.bt_output_bedroom
+
+          - delay: "00:00:02"
+
+          - if:
+              - condition: state
+                entity_id: binary_sensor.presence_living_room
+                state: "off"
+            then:
+              - service: bluetooth_audio_server.stop_output
+                data:
+                  output_id: media_player.bt_output_living_room
+
+          - if:
+              - condition: state
+                entity_id: binary_sensor.presence_kitchen
+                state: "off"
+            then:
+              - service: bluetooth_audio_server.stop_output
+                data:
+                  output_id: media_player.bt_output_esp32_kitchen
+
+      # ════════════════════════════════════════════════════════════════════
+      # ENTER: Kitchen
+      # ════════════════════════════════════════════════════════════════════
+      - conditions:
+          - condition: trigger
+            id: enter_kitchen
+        sequence:
+          - service: bluetooth_audio_server.set_delay
+            data:
+              output_id: media_player.bt_output_esp32_kitchen
+              delay_ms: "{{ states('input_number.bt_audio_delay_kitchen') | int }}"
+
+          - service: bluetooth_audio_server.set_volume
+            data:
+              output_id: media_player.bt_output_esp32_kitchen
+              volume: 0.65
+
+          - service: bluetooth_audio_server.route_to_output
+            data:
+              output_id: media_player.bt_output_esp32_kitchen
+
+          - delay: "00:00:02"
+
+          - if:
+              - condition: state
+                entity_id: binary_sensor.presence_living_room
+                state: "off"
+            then:
+              - service: bluetooth_audio_server.stop_output
+                data:
+                  output_id: media_player.bt_output_living_room
+
+          - if:
+              - condition: state
+                entity_id: binary_sensor.presence_bedroom
+                state: "off"
+            then:
+              - service: bluetooth_audio_server.stop_output
+                data:
+                  output_id: media_player.bt_output_bedroom
+
+      # ════════════════════════════════════════════════════════════════════
+      # LEAVE: any room — stop that output when empty
+      # (delay_off in the template sensor already adds hysteresis, so by
+      #  the time we reach here the listener has genuinely left)
+      # ════════════════════════════════════════════════════════════════════
+      - conditions:
+          - condition: trigger
+            id: leave_living_room
+        sequence:
+          - service: bluetooth_audio_server.stop_output
+            data:
+              output_id: media_player.bt_output_living_room
+
+      - conditions:
+          - condition: trigger
+            id: leave_bedroom
+        sequence:
+          - service: bluetooth_audio_server.stop_output
+            data:
+              output_id: media_player.bt_output_bedroom
+
+      - conditions:
+          - condition: trigger
+            id: leave_kitchen
+        sequence:
+          - service: bluetooth_audio_server.stop_output
+            data:
+              output_id: media_player.bt_output_esp32_kitchen

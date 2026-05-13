@@ -1,0 +1,17 @@
+{
+  "domain": "bluetooth_audio_server",
+  "name": "Bluetooth Audio Server",
+  "version": "0.1.0",
+  "documentation": "https://github.com/your-repo/bluetooth-audio-server",
+  "issue_tracker": "https://github.com/your-repo/bluetooth-audio-server/issues",
+  "requirements": [
+    "pydbus>=0.6.0",
+    "pyalsaaudio>=0.10.0"
+  ],
+  "dependencies": [],
+  "after_dependencies": ["bluetooth"],
+  "codeowners": ["@your-github-handle"],
+  "config_flow": true,
+  "iot_class": "local_push",
+  "homeassistant": "2024.1.0"
+}
