@@ -1,0 +1,63 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Bluetooth Audio Server",
+        "description": "Select the Bluetooth adapter that will act as the A2DP sink. Adapters detected on this host: **{adapters}**",
+        "data": {
+          "source_adapter": "Bluetooth Adapter"
+        },
+        "data_description": {
+          "source_adapter": "The adapter (e.g. hci0) that your phone will pair with."
+        }
+      },
+      "add_output": {
+        "title": "Add Speaker Output",
+        "description": "Add a destination speaker. Outputs configured so far: **{count}**\n\nLeave **Name** blank (or check *Skip*) to finish without adding a speaker — you can always add more later via **Configure**.",
+        "data": {
+          "name":           "Display Name",
+          "type":           "Output Type",
+          "address":        "Address",
+          "delay_ms":       "Audio Delay (ms)",
+          "add_another":    "Save and add another output",
+          "skip_and_finish":"Skip — finish setup without adding this output"
+        },
+        "data_description": {
+          "address":  "Bluetooth speaker: MAC address (e.g. AA:BB:CC:DD:EE:FF). ESP32 satellite: IP address or IP:port (default port 5005).",
+          "delay_ms": "Latency compensation buffer — increase on the faster speaker until all rooms play in sync (0–2000 ms)."
+        }
+      }
+    },
+    "abort": {
+      "already_configured": "This Bluetooth adapter is already configured."
+    },
+    "error": {
+      "invalid_mac":     "Invalid MAC address — expected format: AA:BB:CC:DD:EE:FF",
+      "address_required":"Address is required for this output type.",
+      "name_required":   "Please enter a display name."
+    }
+  },
+  "options": {
+    "step": {
+      "add_output": {
+        "title": "Add Speaker Output",
+        "description": "Add a new output to this integration. The integration will reload after saving.",
+        "data": {
+          "name":     "Display Name",
+          "type":     "Output Type",
+          "address":  "Address",
+          "delay_ms": "Audio Delay (ms)"
+        },
+        "data_description": {
+          "address":  "Bluetooth speaker: MAC address. ESP32 satellite: IP address or IP:port.",
+          "delay_ms": "Latency compensation in milliseconds (0–2000)."
+        }
+      }
+    },
+    "error": {
+      "invalid_mac":     "Invalid MAC address — expected format: AA:BB:CC:DD:EE:FF",
+      "address_required":"Address is required.",
+      "name_required":   "Display name cannot be empty."
+    }
+  }
+}

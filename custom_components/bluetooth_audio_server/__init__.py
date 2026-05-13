@@ -29,8 +29,19 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     coordinator = BluetoothAudioCoordinator(hass, adapter)
     await coordinator.async_setup()
 
-    # Register outputs that were saved during config / options flow.
-    for output_cfg in entry.data.get(CONF_OUTPUTS, []):
+    # Outputs added via the Options flow are stored in entry.options;
+    # outputs from the initial config flow are in entry.data.
+    # Merge both, with options taking precedence on id collision.
+    data_outputs    = entry.data.get(CONF_OUTPUTS, [])
+    options_outputs = entry.options.get(CONF_OUTPUTS, [])
+    seen: set[str] = set()
+    outputs: list[dict] = []
+    for out in options_outputs + data_outputs:
+        if out["id"] not in seen:
+            seen.add(out["id"])
+            outputs.append(out)
+
+    for output_cfg in outputs:
         if output_cfg.get("type") == "esp32":
             host, port = output_cfg["address"].split(":")
             await coordinator.async_add_esp32_output(
